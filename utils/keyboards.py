@@ -22,7 +22,7 @@ class KeyboardTemplates:
     def submenu() -> InlineKeyboardMarkup:
         """Submenu keyboard"""
         keyboard = [
-            [InlineKeyboardButton("Календарь", callback_data='calendar')],
+            [InlineKeyboardButton("Calendar", callback_data='calendar')],
             [InlineKeyboardButton("Settings", callback_data='settings')],
             [InlineKeyboardButton("Reports", callback_data='reports')],
             [InlineKeyboardButton("Tools", callback_data='tools')],

@@ -3,7 +3,7 @@
 Callback handler for processing inline keyboard callbacks using python-telegram-bot
 """
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from utils.keyboards import KeyboardTemplates
 from utils.calendar_utils import create_calendar
@@ -57,10 +57,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 await _handle_calendar_navigation(update, context)
             except (ValueError, AttributeError, TypeError, Exception):
                 # Not a calendar callback either - might be add_order_* or other future callbacks
-                # Check for add_order pattern
-                if callback_data.startswith('add_order_'):
-                    # TODO: Handle add order callback
-                    await query.message.reply_text("Add order feature coming soon!")
+                # Check for add_order pattern or ConversationHandler callbacks - skip these
+                if (callback_data.startswith('add_order_') or 
+                    callback_data in ['cancel_order_form', 'skip_description', 'skip_contact', 'confirm_order']):
+                    # These are handled by ConversationHandler - don't process here
+                    pass
                 else:
                     await query.message.reply_text("Unknown action. Please try again.")
             
@@ -87,9 +88,8 @@ async def _handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         parse_mode='HTML'
     )
 
-async def _handle_about(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _handle_about(query) -> None:
     """Handle about callback"""
-    query = update.callback_query
     text = """
 <b>Metrica Bot</b>
 
@@ -103,9 +103,8 @@ Built for the Metrica project.
     """
     await query.message.reply_text(text, parse_mode='HTML')
 
-async def _handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _handle_help(query) -> None:
     """Handle help callback"""
-    query = update.callback_query
     text = """
 <b>Available Commands:</b>
 
@@ -129,6 +128,19 @@ async def _handle_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     # Create calendar starting with year selection
     calendar_markup, step = create_calendar()
+
+    # Normalize to a list of rows (list[list[InlineKeyboardButton]])
+    if hasattr(calendar_markup, "inline_keyboard"):
+        rows = list(calendar_markup.inline_keyboard)
+    else:
+        rows = list(calendar_markup)
+    # If it's a flat list of buttons, wrap it as a single row
+    if rows and isinstance(rows[0], InlineKeyboardButton):
+        rows = [rows]
+
+    # Append "Back to Menu" as its own row
+    rows.append([InlineKeyboardButton("🏠 Back to Menu", callback_data="menu")])
+    calendar_markup = InlineKeyboardMarkup(rows)
     
     # Get the step text (Year, Month, or Day)
     step_text = LSTEP[step] if step in LSTEP else "date"
@@ -155,6 +167,18 @@ async def _handle_calendar_navigation(update: Update, context: ContextTypes.DEFA
         # User is still selecting (year -> month -> day)
         step_text = LSTEP[step] if step in LSTEP else "date"
         text = f"<b>📅 Calendar</b>\n\nSelect {step_text}:"
+
+        # Normalize to a list of rows (list[list[InlineKeyboardButton]])
+        if hasattr(key, "inline_keyboard"):
+            rows = list(key.inline_keyboard)
+        else:
+            rows = list(key)
+        if rows and isinstance(rows[0], InlineKeyboardButton):
+            rows = [rows]
+
+        # Append "Back to Menu" as its own row
+        rows.append([InlineKeyboardButton("🏠 Back to Menu", callback_data="menu")])
+        key = InlineKeyboardMarkup(rows)
         await query.message.edit_text(
             text,
             reply_markup=key,
@@ -167,18 +191,29 @@ async def _handle_calendar_navigation(update: Update, context: ContextTypes.DEFA
         
         logger.info(f"User {update.effective_user.id} selected date: {selected_date}")
         
-        # TODO: Load orders for this date from database
-        # For now, just show a message
+        # Load orders for this date from database
+        from database.order_service import OrderService
+        order_service = OrderService()
+        orders = order_service.get_orders_by_date(selected_date)
+        
         text = f"<b>📅 Selected Date: {formatted_date}</b>\n\n"
-        text += "Orders for this date:\n"
-        text += "• No orders found\n\n"
+        
+        if orders:
+            text += f"<b>Orders for this date ({len(orders)}):</b>\n"
+            for order in orders:
+                text += f"• <b>#{order.order_id}</b> - {order.client_name} - {order.income_value:.2f}\n"
+            text += "\n"
+        else:
+            text += "Orders for this date:\n"
+            text += "• No orders found\n\n"
+        
         text += "Would you like to add a new order?"
         
-        # Create keyboard with back button and add order button
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        # Create keyboard with back button, add order button, and menu button
         keyboard = [
             [InlineKeyboardButton("➕ Add Order", callback_data=f'add_order_{selected_date}')],
-            [InlineKeyboardButton("📅 Back to Calendar", callback_data='calendar')]
+            [InlineKeyboardButton("📅 Back to Calendar", callback_data='calendar')],
+            [InlineKeyboardButton("🏠 Back to Menu", callback_data='menu')]
         ]
         
         await query.message.edit_text(

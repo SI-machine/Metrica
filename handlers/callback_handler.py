@@ -10,6 +10,7 @@ from utils.calendar_utils import create_calendar
 from telegram_bot_calendar import DetailedTelegramCalendar, LSTEP
 from datetime import datetime
 import logging
+import json
 from auth.decorators import require_auth_callback
 
 logger = logging.getLogger(__name__)
@@ -46,17 +47,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await _handle_tools(update, context)
         else:
             # Try to handle as calendar navigation callback
-            # Calendar callbacks have specific format that DetailedTelegramCalendar can process
-            try:
-                # Check if it's a calendar callback by trying to create a calendar instance
-                # The process method might raise exceptions for invalid data
-                test_calendar = DetailedTelegramCalendar()
-                # Try processing - if it works without raising ValueError/TypeError, it's likely a calendar callback
-                result, key, step = test_calendar.process(callback_data)
-                # It's a calendar callback - handle it
-                await _handle_calendar_navigation(update, context)
-            except (ValueError, AttributeError, TypeError, Exception):
-                # Not a calendar callback either - might be add_order_* or other future callbacks
+            # Calendar callbacks from telegram_bot_calendar start with 'cbcal_'
+            if callback_data.startswith('cbcal_'):
+                # It's a calendar callback - handle it directly
+                try:
+                    await _handle_calendar_navigation(update, context)
+                except Exception as e:
+                    logger.error(f"Error handling calendar navigation: {e}")
+                    await query.message.reply_text("Sorry, something went wrong with the calendar. Please try again.")
+            else:
+                # Not a calendar callback - might be add_order_* or other future callbacks
                 # Check for add_order pattern or ConversationHandler callbacks - skip these
                 if (callback_data.startswith('add_order_') or 
                     callback_data in ['cancel_order_form', 'skip_description', 'skip_contact', 'confirm_order']):
@@ -125,33 +125,65 @@ Just send me a message!
 async def _handle_calendar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle calendar callback - show calendar view"""
     query = update.callback_query
+    await query.answer()
     
-    # Create calendar starting with year selection
+    # Create calendar
     calendar_markup, step = create_calendar()
-
-    # Normalize to a list of rows (list[list[InlineKeyboardButton]])
-    if hasattr(calendar_markup, "inline_keyboard"):
-        rows = list(calendar_markup.inline_keyboard)
-    else:
-        rows = list(calendar_markup)
-    # If it's a flat list of buttons, wrap it as a single row
-    if rows and isinstance(rows[0], InlineKeyboardButton):
-        rows = [rows]
-
-    # Append "Back to Menu" as its own row
-    rows.append([InlineKeyboardButton("🏠 Back to Menu", callback_data="menu")])
-    calendar_markup = InlineKeyboardMarkup(rows)
     
-    # Get the step text (Year, Month, or Day)
+    # Get the step text
     step_text = LSTEP[step] if step in LSTEP else "date"
     
     text = f"<b>📅 Calendar</b>\n\nSelect {step_text}:"
     
-    # Edit the message with calendar
+    # Add "Back to Menu" button to the calendar keyboard (same approach as navigation)
     if query.message:
+        # Extract rows from the calendar markup and add the back button
+        rows = []
+        if isinstance(calendar_markup, InlineKeyboardMarkup):
+            # Convert tuple of tuples to list of lists
+            for row in calendar_markup.inline_keyboard:
+                rows.append(list(row))
+        elif isinstance(calendar_markup, str):
+            # Parse the JSON string to get the keyboard structure
+            try:
+                keyboard_data = json.loads(calendar_markup)
+                if 'inline_keyboard' in keyboard_data:
+                    # Reconstruct InlineKeyboardButton objects from the JSON data
+                    for row_data in keyboard_data['inline_keyboard']:
+                        if row_data:  # Skip empty rows
+                            row = []
+                            for button_data in row_data:
+                                button = InlineKeyboardButton(
+                                    text=button_data['text'],
+                                    callback_data=button_data['callback_data']
+                                )
+                                row.append(button)
+                            if row:  # Only add non-empty rows
+                                rows.append(row)
+                else:
+                    logger.warning(f"JSON calendar_markup doesn't contain 'inline_keyboard': {calendar_markup[:100]}")
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse calendar_markup as JSON: {e}, markup: {str(calendar_markup)[:100]}")
+            except Exception as e:
+                logger.error(f"Error parsing calendar keyboard: {e}")
+        else:
+            # If calendar_markup is not InlineKeyboardMarkup or string, try to handle it
+            logger.warning(f"Calendar markup is not InlineKeyboardMarkup or string: {type(calendar_markup)}")
+            # Try to use it as-is if it has inline_keyboard attribute
+            if hasattr(calendar_markup, 'inline_keyboard'):
+                for row in calendar_markup.inline_keyboard:
+                    rows.append(list(row))
+        
+        # Append "Back to Menu" as its own row
+        rows.append([InlineKeyboardButton("🏠 Back to Menu", callback_data="menu")])
+        
+        # Create new keyboard with the back button
+        new_keyboard = InlineKeyboardMarkup(rows)
+        
+        # Edit the message with the calendar and back button in one keyboard
         await query.message.edit_text(
             text,
-            reply_markup=calendar_markup,
+            reply_markup=new_keyboard,
             parse_mode='HTML'
         )
 
@@ -161,29 +193,85 @@ async def _handle_calendar_navigation(update: Update, context: ContextTypes.DEFA
     query = update.callback_query
     
     # Process calendar callback
-    result, key, step = DetailedTelegramCalendar().process(query.data)
+    calendar = DetailedTelegramCalendar()
+    result, key, step = calendar.process(query.data)
     
-    if not result and key:
+    # Check if we have a valid keyboard (InlineKeyboardMarkup) and no result yet
+    if not result and isinstance(key, InlineKeyboardMarkup):
         # User is still selecting (year -> month -> day)
         step_text = LSTEP[step] if step in LSTEP else "date"
         text = f"<b>📅 Calendar</b>\n\nSelect {step_text}:"
 
-        # Normalize to a list of rows (list[list[InlineKeyboardButton]])
-        if hasattr(key, "inline_keyboard"):
-            rows = list(key.inline_keyboard)
-        else:
-            rows = list(key)
-        if rows and isinstance(rows[0], InlineKeyboardButton):
-            rows = [rows]
+        # Extract rows from the keyboard and convert tuples to lists
+        rows = []
+        for row in key.inline_keyboard:
+            rows.append(list(row))  # Convert tuple to list
 
         # Append "Back to Menu" as its own row
         rows.append([InlineKeyboardButton("🏠 Back to Menu", callback_data="menu")])
-        key = InlineKeyboardMarkup(rows)
+        
+        # Create new keyboard with the back button
+        new_keyboard = InlineKeyboardMarkup(rows)
         await query.message.edit_text(
             text,
-            reply_markup=key,
+            reply_markup=new_keyboard,
             parse_mode='HTML'
         )
+    elif not result and key:
+        # key exists but is not an InlineKeyboardMarkup
+        # It might be a JSON string representation of the keyboard
+        rows = []
+        try:
+            if isinstance(key, str):
+                # Parse the JSON string to get the keyboard structure
+                keyboard_data = json.loads(key)
+                if 'inline_keyboard' in keyboard_data:
+                    # Reconstruct InlineKeyboardButton objects from the JSON data
+                    for row_data in keyboard_data['inline_keyboard']:
+                        if row_data:  # Skip empty rows
+                            row = []
+                            for button_data in row_data:
+                                button = InlineKeyboardButton(
+                                    text=button_data['text'],
+                                    callback_data=button_data['callback_data']
+                                )
+                                row.append(button)
+                            if row:  # Only add non-empty rows
+                                rows.append(row)
+                else:
+                    logger.warning(f"JSON key doesn't contain 'inline_keyboard': {key[:100]}")
+            else:
+                logger.warning(f"Unexpected key type: {type(key)}, value: {str(key)[:100]}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse key as JSON: {e}, key: {str(key)[:100]}")
+        except Exception as e:
+            logger.error(f"Error parsing calendar keyboard: {e}")
+        
+        # If we successfully parsed rows, display the calendar
+        if rows:
+            step_text = LSTEP[step] if step in LSTEP else "date"
+            text = f"<b>📅 Calendar</b>\n\nSelect {step_text}:"
+            
+            # Append "Back to Menu" as its own row
+            rows.append([InlineKeyboardButton("🏠 Back to Menu", callback_data="menu")])
+            
+            # Create new keyboard with the back button
+            new_keyboard = InlineKeyboardMarkup(rows)
+            await query.message.edit_text(
+                text,
+                reply_markup=new_keyboard,
+                parse_mode='HTML'
+            )
+        else:
+            # Fallback: show error message
+            logger.error("Failed to parse calendar keyboard, showing error message")
+            await query.message.reply_text(
+                "Sorry, there was an error displaying the calendar navigation. Please try selecting the calendar again.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📅 Back to Calendar", callback_data="calendar")],
+                    [InlineKeyboardButton("🏠 Back to Menu", callback_data="menu")]
+                ])
+            )
     elif result:
         # A date was selected
         selected_date = result.strftime("%Y-%m-%d")

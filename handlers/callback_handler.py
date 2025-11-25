@@ -46,10 +46,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await _handle_calendar(update, context)
         elif callback_data == 'order_list' or callback_data.startswith('order_list_page_'):
             await _handle_order_list(update, context)
+        elif callback_data == 'add_employee':
+            # This will be handled by ConversationHandler
+            pass
+        elif callback_data == 'employee_list' or callback_data.startswith('employee_list_page_'):
+            await _handle_employee_list(update, context)
         elif callback_data == 'settings':
             await _handle_settings(update, context)
-        elif callback_data == 'reports':
-            await _handle_reports(update, context)
+        elif callback_data == 'employees':
+            await _handle_employees(update, context)
         elif callback_data == 'tools':
             await _handle_tools(update, context)
         else:
@@ -66,7 +71,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 # Not a calendar callback - might be add_order_* or other future callbacks
                 # Check for add_order pattern or ConversationHandler callbacks - skip these
                 if (callback_data.startswith('add_order_') or 
-                    callback_data in ['cancel_order_form', 'skip_description', 'skip_contact', 'confirm_order']):
+                    callback_data in ['cancel_order_form', 'skip_description', 'skip_contact', 'confirm_order',
+                                     'cancel_employee_form', 'skip_phone', 'skip_email', 'skip_notes', 'confirm_employee',
+                                     'payment_owner', 'payment_in_percent', 'payment_fixed']):
                     # These are handled by ConversationHandler - don't process here
                     pass
                 else:
@@ -410,11 +417,96 @@ async def _handle_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     )
 
 @require_auth_callback  
-async def _handle_reports(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle reports callback"""
+async def _handle_employees(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle employees callback"""
     query = update.callback_query
-    text = "<b>Reports</b>\n\nReport generation coming soon!"
-    await query.message.reply_text(text, parse_mode='HTML')
+    text = "<b>👥 Employees</b>\n\nManage your employees:"
+    await query.message.reply_text(
+        text,
+        reply_markup=KeyboardTemplates.employees_menu(),
+        parse_mode='HTML'
+    )
+
+@require_auth_callback
+async def _handle_employee_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle employee list callback with pagination"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Parse page number from callback_data
+    callback_data = query.data
+    page = 0
+    if callback_data.startswith('employee_list_page_'):
+        try:
+            page = int(callback_data.replace('employee_list_page_', ''))
+        except ValueError:
+            page = 0
+    
+    # Pagination settings
+    EMPLOYEES_PER_PAGE = 5
+    offset = page * EMPLOYEES_PER_PAGE
+    
+    # Get employees from database
+    from database.employee_service import EmployeeService
+    employee_service = EmployeeService()
+    employees = employee_service.get_all_employees(limit=EMPLOYEES_PER_PAGE, offset=offset)
+    total_employees = employee_service.get_employees_count()
+    total_pages = (total_employees + EMPLOYEES_PER_PAGE - 1) // EMPLOYEES_PER_PAGE if total_employees > 0 else 1
+    
+    # Build the message with monospace table
+    text = "<b>👥 Employees List</b>\n\n"
+    
+    if not employees:
+        text += "No employees found."
+    else:
+        # Format as monospace table
+        text += "```\n"
+        text += f"{'ID':<6} {'Name':<20} {'Payment':<15} {'Status':<10} {'Started':<12}\n"
+        text += "-" * 75 + "\n"
+        
+        for employee in employees:
+            # Truncate long names
+            name = employee.employee_name[:18] if len(employee.employee_name) > 18 else employee.employee_name
+            date_str = employee.date_started[:10] if len(employee.date_started) > 10 else employee.date_started
+            
+            # Format payment method
+            payment_str = ""
+            if employee.payment_method == 'owner':
+                payment_str = "Owner"
+            elif employee.payment_method == 'in_percent':
+                payment_str = f"{employee.payment_value:.1f}%" if employee.payment_value else "N/A"
+            elif employee.payment_method == 'fixed':
+                payment_str = f"${employee.payment_value:.0f}" if employee.payment_value else "N/A"
+            payment_str = payment_str[:13] if len(payment_str) > 13 else payment_str
+            
+            status_str = employee.status[:8] if len(employee.status) > 8 else employee.status
+            
+            text += f"{employee.employee_id:<6} {name:<20} {payment_str:<15} {status_str:<10} {date_str:<12}\n"
+        
+        text += "```\n"
+        text += f"\n<b>Page {page + 1} of {total_pages}</b> | <b>Total: {total_employees} employees</b>"
+    
+    # Build pagination keyboard
+    keyboard = []
+    
+    # Pagination buttons
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("◀️ Previous", callback_data=f'employee_list_page_{page - 1}'))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("Next ▶️", callback_data=f'employee_list_page_{page + 1}'))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    # Back button
+    keyboard.append([InlineKeyboardButton("← Back to Employees", callback_data='employees')])
+    
+    await query.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='HTML'
+    )
 
 @require_auth_callback  
 async def _handle_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

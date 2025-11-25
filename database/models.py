@@ -61,6 +61,56 @@ class Order:
             created_at=data.get('created_at')
         )
 
+class Employee:
+    """Employee model representing an employee"""
+    
+    def __init__(self, employee_id: Optional[int] = None, employee_name: str = "",
+                 phone_number: str = "", payment_method: str = "fixed",
+                 payment_value: Optional[float] = None, date_started: str = "",
+                 email: str = "", status: str = "active", notes: str = "",
+                 created_at: Optional[str] = None):
+        self.employee_id = employee_id
+        self.employee_name = employee_name
+        self.phone_number = phone_number
+        self.payment_method = payment_method  # 'owner', 'in_percent', 'fixed'
+        self.payment_value = payment_value  # For percent (0-100) or fixed amount
+        self.date_started = date_started
+        self.email = email
+        self.status = status  # 'active', 'inactive'
+        self.notes = notes
+        self.created_at = created_at or datetime.now().isoformat()
+    
+    def to_dict(self) -> Dict:
+        """Convert employee to dictionary"""
+        return {
+            'employee_id': self.employee_id,
+            'employee_name': self.employee_name,
+            'phone_number': self.phone_number,
+            'payment_method': self.payment_method,
+            'payment_value': self.payment_value,
+            'date_started': self.date_started,
+            'email': self.email,
+            'status': self.status,
+            'notes': self.notes,
+            'created_at': self.created_at
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'Employee':
+        """Create employee from dictionary"""
+        return cls(
+            employee_id=data.get('employee_id'),
+            employee_name=data.get('employee_name', ''),
+            phone_number=data.get('phone_number', ''),
+            payment_method=data.get('payment_method', 'fixed'),
+            payment_value=data.get('payment_value'),
+            date_started=data.get('date_started', ''),
+            email=data.get('email', ''),
+            status=data.get('status', 'active'),
+            notes=data.get('notes', ''),
+            created_at=data.get('created_at')
+        )
+
 def get_db_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
     """Get database connection"""
     if db_path is None:
@@ -88,6 +138,22 @@ def init_db(db_path: Optional[str] = None) -> None:
             income_value REAL NOT NULL,
             status TEXT DEFAULT 'pending',
             client_contact TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS employees (
+            employee_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_name TEXT NOT NULL,
+            phone_number TEXT,
+            payment_method TEXT NOT NULL DEFAULT 'fixed',
+            payment_value REAL,
+            date_started TEXT NOT NULL,
+            email TEXT,
+            status TEXT DEFAULT 'active',
+            notes TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT
         )

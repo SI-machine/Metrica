@@ -27,6 +27,16 @@ from handlers.order_form_handler import (
     WAITING_CLIENT_NAME, WAITING_DESCRIPTION, WAITING_EMPLOYEE_NAME,
     WAITING_INCOME_VALUE, WAITING_CLIENT_CONTACT, CONFIRMING_ORDER
 )
+from handlers.employee_form_handler import (
+    start_employee_form, receive_employee_name as receive_emp_name_form,
+    receive_phone_number, skip_phone, receive_payment_method,
+    receive_payment_value, receive_date_started, receive_email,
+    skip_email, receive_notes, skip_notes, confirm_employee,
+    cancel_employee_form, cancel_employee_form_message,
+    WAITING_EMPLOYEE_NAME as WAITING_EMP_NAME, WAITING_PHONE_NUMBER,
+    WAITING_PAYMENT_METHOD, WAITING_PAYMENT_VALUE, WAITING_DATE_STARTED,
+    WAITING_EMAIL, WAITING_NOTES, CONFIRMING_EMPLOYEE
+)
 from database.models import init_db
 
 logger = logging.getLogger(__name__)
@@ -122,6 +132,56 @@ def main():
         name="order_form"
     )
     application.add_handler(order_form_handler)
+    
+    # Register employee form ConversationHandler
+    employee_form_handler = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(start_employee_form, pattern='^add_employee$')
+        ],
+        states={
+            WAITING_EMP_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_emp_name_form),
+                CallbackQueryHandler(cancel_employee_form, pattern='^cancel_employee_form$')
+            ],
+            WAITING_PHONE_NUMBER: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_phone_number),
+                CallbackQueryHandler(skip_phone, pattern='^skip_phone$'),
+                CallbackQueryHandler(cancel_employee_form, pattern='^cancel_employee_form$')
+            ],
+            WAITING_PAYMENT_METHOD: [
+                CallbackQueryHandler(receive_payment_method, pattern='^payment_(owner|in_percent|fixed)$'),
+                CallbackQueryHandler(cancel_employee_form, pattern='^cancel_employee_form$')
+            ],
+            WAITING_PAYMENT_VALUE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_payment_value),
+                CallbackQueryHandler(cancel_employee_form, pattern='^cancel_employee_form$')
+            ],
+            WAITING_DATE_STARTED: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_date_started),
+                CallbackQueryHandler(cancel_employee_form, pattern='^cancel_employee_form$')
+            ],
+            WAITING_EMAIL: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_email),
+                CallbackQueryHandler(skip_email, pattern='^skip_email$'),
+                CallbackQueryHandler(cancel_employee_form, pattern='^cancel_employee_form$')
+            ],
+            WAITING_NOTES: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_notes),
+                CallbackQueryHandler(skip_notes, pattern='^skip_notes$'),
+                CallbackQueryHandler(cancel_employee_form, pattern='^cancel_employee_form$')
+            ],
+            CONFIRMING_EMPLOYEE: [
+                CallbackQueryHandler(confirm_employee, pattern='^confirm_employee$'),
+                CallbackQueryHandler(cancel_employee_form, pattern='^cancel_employee_form$')
+            ]
+        },
+        fallbacks=[
+            CommandHandler("cancel", cancel_employee_form_message),
+            CallbackQueryHandler(cancel_employee_form, pattern='^cancel_employee_form$')
+        ],
+        name="employee_form"
+    )
+    application.add_handler(employee_form_handler)
     
     # Register callback handler for button clicks (after ConversationHandler)
     application.add_handler(CallbackQueryHandler(button_callback))

@@ -39,6 +39,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await _handle_help(query)
         elif callback_data == 'calendar':
             await _handle_calendar(update, context)
+        elif callback_data == 'orders':
+            await _handle_orders(update, context)
+        elif callback_data == 'order_add':
+            # Show calendar to select date for new order
+            await _handle_calendar(update, context)
+        elif callback_data == 'order_list' or callback_data.startswith('order_list_page_'):
+            await _handle_order_list(update, context)
         elif callback_data == 'settings':
             await _handle_settings(update, context)
         elif callback_data == 'reports':
@@ -311,13 +318,94 @@ async def _handle_calendar_navigation(update: Update, context: ContextTypes.DEFA
         )
 
 @require_auth_callback
+async def _handle_orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle orders callback"""
+    query = update.callback_query
+    text = "<b>📋 Orders</b>\n\nManage your orders:"
+    await query.message.reply_text(
+        text,
+        reply_markup=KeyboardTemplates.orders_menu(),
+        parse_mode='HTML'
+    )
+
+@require_auth_callback
+async def _handle_order_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle order list callback with pagination"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Parse page number from callback_data
+    callback_data = query.data
+    page = 0
+    if callback_data.startswith('order_list_page_'):
+        try:
+            page = int(callback_data.replace('order_list_page_', ''))
+        except ValueError:
+            page = 0
+    
+    # Pagination settings
+    ORDERS_PER_PAGE = 5
+    offset = page * ORDERS_PER_PAGE
+    
+    # Get orders from database
+    from database.order_service import OrderService
+    order_service = OrderService()
+    orders = order_service.get_all_orders(limit=ORDERS_PER_PAGE, offset=offset)
+    total_orders = order_service.get_orders_count()
+    total_pages = (total_orders + ORDERS_PER_PAGE - 1) // ORDERS_PER_PAGE if total_orders > 0 else 1
+    
+    # Build the message with monospace table
+    text = "<b>📋 Orders List</b>\n\n"
+    
+    if not orders:
+        text += "No orders found."
+    else:
+        # Format as monospace table
+        text += "```\n"
+        text += f"{'ID':<6} {'Date':<12} {'Client':<20} {'Income':<12} {'Status':<10}\n"
+        text += "-" * 70 + "\n"
+        
+        for order in orders:
+            # Truncate long names
+            client_name = order.client_name[:18] if len(order.client_name) > 18 else order.client_name
+            date_str = order.date[:10] if len(order.date) > 10 else order.date
+            income_str = f"{order.income_value:.2f}"
+            status_str = order.status[:8] if len(order.status) > 8 else order.status
+            
+            text += f"{order.order_id:<6} {date_str:<12} {client_name:<20} {income_str:<12} {status_str:<10}\n"
+        
+        text += "```\n"
+        text += f"\n<b>Page {page + 1} of {total_pages}</b> | <b>Total: {total_orders} orders</b>"
+    
+    # Build pagination keyboard
+    keyboard = []
+    
+    # Pagination buttons
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("◀️ Previous", callback_data=f'order_list_page_{page - 1}'))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("Next ▶️", callback_data=f'order_list_page_{page + 1}'))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    # Back button
+    keyboard.append([InlineKeyboardButton("← Back to Orders", callback_data='orders')])
+    
+    await query.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='HTML'
+    )
+
+@require_auth_callback
 async def _handle_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle settings callback"""
+    """Handle settings callback (legacy - kept for backward compatibility)"""
     query = update.callback_query
     text = "<b>Settings</b>\n\nSettings panel coming soon!"
     await query.message.reply_text(
         text,
-        reply_markup=KeyboardTemplates.settings_menu(),
         parse_mode='HTML'
     )
 

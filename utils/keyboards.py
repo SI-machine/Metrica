@@ -23,7 +23,7 @@ class KeyboardTemplates:
         """Submenu keyboard"""
         keyboard = [
             [InlineKeyboardButton("Calendar", callback_data='calendar')],
-            [InlineKeyboardButton("Settings", callback_data='settings')],
+            [InlineKeyboardButton("Orders", callback_data='orders')],
             [InlineKeyboardButton("Reports", callback_data='reports')],
             [InlineKeyboardButton("Tools", callback_data='tools')],
             [InlineKeyboardButton("← Back", callback_data='start')]
@@ -31,12 +31,11 @@ class KeyboardTemplates:
         return InlineKeyboardMarkup(keyboard)
     
     @staticmethod
-    def settings_menu() -> InlineKeyboardMarkup:
-        """Settings menu keyboard"""
+    def orders_menu() -> InlineKeyboardMarkup:
+        """Orders menu keyboard"""
         keyboard = [
-            [InlineKeyboardButton("Notifications", callback_data='settings_notifications')],
-            [InlineKeyboardButton("Language", callback_data='settings_language')],
-            [InlineKeyboardButton("Privacy", callback_data='settings_privacy')],
+            [InlineKeyboardButton("➕ Add Order", callback_data='order_add')],
+            [InlineKeyboardButton("📋 Show Orders List", callback_data='order_list')],
             [InlineKeyboardButton("← Back to Menu", callback_data='menu')]
         ]
         return InlineKeyboardMarkup(keyboard)

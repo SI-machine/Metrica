@@ -154,4 +154,48 @@ class OrderService:
             raise
         finally:
             conn.close()
+    
+    def get_all_orders(self, limit: Optional[int] = None, offset: Optional[int] = None) -> List[Order]:
+        """Get all orders sorted by created_at DESC (most recent first)"""
+        conn = get_db_connection(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            query = 'SELECT * FROM orders ORDER BY created_at DESC'
+            if limit is not None:
+                query += f' LIMIT {limit}'
+                if offset is not None:
+                    query += f' OFFSET {offset}'
+            
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            
+            orders = []
+            for row in rows:
+                orders.append(Order(
+                    order_id=row['order_id'],
+                    client_name=row['client_name'],
+                    description=row['description'],
+                    date=row['date'],
+                    employee_name=row['employee_name'],
+                    income_value=row['income_value'],
+                    status=row['status'],
+                    client_contact=row['client_contact'],
+                    created_at=row['created_at']
+                ))
+            return orders
+        finally:
+            conn.close()
+    
+    def get_orders_count(self) -> int:
+        """Get total count of orders"""
+        conn = get_db_connection(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('SELECT COUNT(*) as count FROM orders')
+            row = cursor.fetchone()
+            return row['count'] if row else 0
+        finally:
+            conn.close()
 

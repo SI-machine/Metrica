@@ -51,6 +51,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             pass
         elif callback_data == 'employee_list' or callback_data.startswith('employee_list_page_'):
             await _handle_employee_list(update, context)
+        elif callback_data == 'payroll_list' or callback_data.startswith('payroll_list_page_'):
+            await _handle_payroll_list(update, context)
         elif callback_data == 'settings':
             await _handle_settings(update, context)
         elif callback_data == 'employees':
@@ -71,6 +73,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 # Not a calendar callback - might be add_order_* or other future callbacks
                 # Check for add_order pattern or ConversationHandler callbacks - skip these
                 if (callback_data.startswith('add_order_') or 
+                    callback_data.startswith('select_employee_') or
                     callback_data in ['cancel_order_form', 'skip_description', 'skip_contact', 'confirm_order',
                                      'cancel_employee_form', 'skip_phone', 'skip_email', 'skip_notes', 'confirm_employee',
                                      'payment_owner', 'payment_in_percent', 'payment_fixed']):
@@ -495,6 +498,82 @@ async def _handle_employee_list(update: Update, context: ContextTypes.DEFAULT_TY
         nav_buttons.append(InlineKeyboardButton("◀️ Previous", callback_data=f'employee_list_page_{page - 1}'))
     if page < total_pages - 1:
         nav_buttons.append(InlineKeyboardButton("Next ▶️", callback_data=f'employee_list_page_{page + 1}'))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    # Back button
+    keyboard.append([InlineKeyboardButton("← Back to Employees", callback_data='employees')])
+    
+    await query.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='HTML'
+    )
+
+@require_auth_callback
+async def _handle_payroll_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle payroll list callback with pagination"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Parse page number from callback_data
+    callback_data = query.data
+    page = 0
+    if callback_data.startswith('payroll_list_page_'):
+        try:
+            page = int(callback_data.replace('payroll_list_page_', ''))
+        except ValueError:
+            page = 0
+    
+    # Pagination settings
+    PAYROLL_PER_PAGE = 5
+    offset = page * PAYROLL_PER_PAGE
+    
+    # Get payroll summary from database
+    from database.payroll_service import PayrollService
+    payroll_service = PayrollService()
+    payroll_summary = payroll_service.get_payroll_summary_by_employee()
+    
+    # Calculate pagination
+    total_entries = len(payroll_summary)
+    total_pages = (total_entries + PAYROLL_PER_PAGE - 1) // PAYROLL_PER_PAGE if total_entries > 0 else 1
+    
+    # Get paginated results
+    start_idx = offset
+    end_idx = min(offset + PAYROLL_PER_PAGE, total_entries)
+    paginated_summary = payroll_summary[start_idx:end_idx]
+    
+    # Build the message
+    text = "<b>💰 Payroll Calculations</b>\n\n"
+    
+    if not paginated_summary:
+        text += "No payroll calculations found."
+    else:
+        # Format as monospace table
+        text += "```\n"
+        text += f"{'Employee':<20} {'Orders':<8} {'Total Amount':<15}\n"
+        text += "-" * 45 + "\n"
+        
+        for summary in paginated_summary:
+            employee_name = summary['employee_name'][:18] if len(summary['employee_name']) > 18 else summary['employee_name']
+            order_count = str(summary['order_count'])
+            total_amount = f"{summary['total_amount']:.2f}"
+            
+            text += f"{employee_name:<20} {order_count:<8} {total_amount:<15}\n"
+        
+        text += "```\n"
+        text += f"\n<b>Page {page + 1} of {total_pages}</b> | <b>Total: {total_entries} employees</b>"
+    
+    # Build pagination keyboard
+    keyboard = []
+    
+    # Pagination buttons
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("◀️ Previous", callback_data=f'payroll_list_page_{page - 1}'))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("Next ▶️", callback_data=f'payroll_list_page_{page + 1}'))
     
     if nav_buttons:
         keyboard.append(nav_buttons)

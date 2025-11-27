@@ -23,7 +23,7 @@ from handlers.order_form_handler import (
     start_order_form, receive_client_name, receive_description,
     receive_employee_name, receive_income_value, receive_client_contact,
     skip_description, skip_contact, confirm_order, cancel_order_form,
-    cancel_order_form_message,
+    cancel_order_form_message, select_employee,
     WAITING_CLIENT_NAME, WAITING_DESCRIPTION, WAITING_EMPLOYEE_NAME,
     WAITING_INCOME_VALUE, WAITING_CLIENT_CONTACT, CONFIRMING_ORDER
 )
@@ -108,6 +108,7 @@ def main():
                 CallbackQueryHandler(cancel_order_form, pattern='^cancel_order_form$')
             ],
             WAITING_EMPLOYEE_NAME: [
+                CallbackQueryHandler(select_employee, pattern='^select_employee_'),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_employee_name),
                 CallbackQueryHandler(cancel_order_form, pattern='^cancel_order_form$')
             ],

@@ -111,6 +111,52 @@ class Employee:
             created_at=data.get('created_at')
         )
 
+class Payroll:
+    """Payroll model representing payroll calculations for employees"""
+    
+    def __init__(self, payroll_id: Optional[int] = None, employee_id: int = 0,
+                 employee_name: str = "", order_id: int = 0, order_date: str = "",
+                 order_value: float = 0.0, payment_percent: Optional[float] = None,
+                 calculated_amount: float = 0.0, created_at: Optional[str] = None):
+        self.payroll_id = payroll_id
+        self.employee_id = employee_id
+        self.employee_name = employee_name
+        self.order_id = order_id
+        self.order_date = order_date
+        self.order_value = order_value
+        self.payment_percent = payment_percent
+        self.calculated_amount = calculated_amount
+        self.created_at = created_at or datetime.now().isoformat()
+    
+    def to_dict(self) -> Dict:
+        """Convert payroll to dictionary"""
+        return {
+            'payroll_id': self.payroll_id,
+            'employee_id': self.employee_id,
+            'employee_name': self.employee_name,
+            'order_id': self.order_id,
+            'order_date': self.order_date,
+            'order_value': self.order_value,
+            'payment_percent': self.payment_percent,
+            'calculated_amount': self.calculated_amount,
+            'created_at': self.created_at
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'Payroll':
+        """Create payroll from dictionary"""
+        return cls(
+            payroll_id=data.get('payroll_id'),
+            employee_id=data.get('employee_id', 0),
+            employee_name=data.get('employee_name', ''),
+            order_id=data.get('order_id', 0),
+            order_date=data.get('order_date', ''),
+            order_value=data.get('order_value', 0.0),
+            payment_percent=data.get('payment_percent'),
+            calculated_amount=data.get('calculated_amount', 0.0),
+            created_at=data.get('created_at')
+        )
+
 def get_db_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
     """Get database connection"""
     if db_path is None:
@@ -156,6 +202,22 @@ def init_db(db_path: Optional[str] = None) -> None:
             notes TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS payroll (
+            payroll_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id INTEGER NOT NULL,
+            employee_name TEXT NOT NULL,
+            order_id INTEGER NOT NULL,
+            order_date TEXT NOT NULL,
+            order_value REAL NOT NULL,
+            payment_percent REAL,
+            calculated_amount REAL NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (employee_id) REFERENCES employees(employee_id),
+            FOREIGN KEY (order_id) REFERENCES orders(order_id)
         )
     ''')
     

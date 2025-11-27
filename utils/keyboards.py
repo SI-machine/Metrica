@@ -46,6 +46,7 @@ class KeyboardTemplates:
         keyboard = [
             [InlineKeyboardButton("➕ Add Employee", callback_data='add_employee')],
             [InlineKeyboardButton("📋 Show Employees List", callback_data='employee_list')],
+            [InlineKeyboardButton("💰 Payroll Calculations", callback_data='payroll_list')],
             [InlineKeyboardButton("← Back to Menu", callback_data='menu')]
         ]
         return InlineKeyboardMarkup(keyboard)

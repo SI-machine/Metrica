@@ -85,16 +85,13 @@ async def receive_description(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data['order_data']['description'] = description
     
     text = f"<b>Description:</b> {description}\n\n"
-    text += "Now, please enter the employee name:"
-    
-    keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data='cancel_order_form')]]
+    text += "Now, please select an employee:"
     
     await update.message.reply_text(
         text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='HTML'
     )
-    return WAITING_EMPLOYEE_NAME
+    return await _show_employee_selection(update, context)
 
 @require_auth
 async def skip_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -104,40 +101,126 @@ async def skip_description(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     context.user_data['order_data']['description'] = ""
     
-    text = "Description skipped.\n\n"
-    text += "Now, please enter the employee name:"
+    return await _show_employee_selection(update, context)
+
+@require_auth
+async def _show_employee_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Show employee selection from database"""
+    from database.employee_service import EmployeeService
     
-    keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data='cancel_order_form')]]
+    employee_service = EmployeeService()
+    employees = employee_service.get_all_employees()
     
-    await query.message.edit_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='HTML'
-    )
+    if not employees:
+        text = "No employees found in the database.\n\n"
+        text += "Please add employees first from the Employees menu."
+        keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data='cancel_order_form')]]
+        
+        if update.callback_query:
+            await update.callback_query.message.edit_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
+        else:
+            await update.message.reply_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
+        return WAITING_EMPLOYEE_NAME
+    
+    text = "Please select an employee from the list:"
+    
+    # Create keyboard with employee buttons (max 2 per row)
+    keyboard = []
+    row = []
+    for employee in employees:
+        if employee.status == 'active':  # Only show active employees
+            button_text = employee.employee_name
+            if len(button_text) > 20:
+                button_text = button_text[:17] + "..."
+            row.append(InlineKeyboardButton(
+                button_text,
+                callback_data=f'select_employee_{employee.employee_id}'
+            ))
+            if len(row) == 2:
+                keyboard.append(row)
+                row = []
+    
+    if row:  # Add remaining buttons
+        keyboard.append(row)
+    
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data='cancel_order_form')])
+    
+    if update.callback_query:
+        await update.callback_query.message.edit_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML'
+        )
+    else:
+        await update.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode='HTML'
+        )
     return WAITING_EMPLOYEE_NAME
 
 @require_auth
 async def receive_employee_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Receive and store employee name"""
-    employee_name = update.message.text.strip()
+    """Show employee selection (legacy - now redirects to selection)"""
+    return await _show_employee_selection(update, context)
+
+@require_auth
+async def select_employee(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handle employee selection from callback"""
+    query = update.callback_query
+    await query.answer()
     
-    if not employee_name:
-        await update.message.reply_text("Please enter a valid employee name:")
-        return WAITING_EMPLOYEE_NAME
+    # Extract employee_id from callback_data (format: select_employee_ID)
+    callback_data = query.data
+    if callback_data.startswith('select_employee_'):
+        try:
+            employee_id = int(callback_data.replace('select_employee_', ''))
+            
+            from database.employee_service import EmployeeService
+            employee_service = EmployeeService()
+            employee = employee_service.get_employee_by_id(employee_id)
+            
+            if not employee:
+                await query.message.reply_text(
+                    "Employee not found. Please try again.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data='cancel_order_form')]])
+                )
+                return WAITING_EMPLOYEE_NAME
+            
+            # Store employee info
+            context.user_data['order_data']['employee_name'] = employee.employee_name
+            context.user_data['order_data']['employee_id'] = employee.employee_id
+            context.user_data['order_data']['employee_payment_method'] = employee.payment_method
+            context.user_data['order_data']['employee_payment_value'] = employee.payment_value
+            
+            text = f"<b>Employee Selected:</b> {employee.employee_name}\n\n"
+            text += "Now, please enter the income value (numeric value, e.g., 1000.50):"
+            
+            keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data='cancel_order_form')]]
+            
+            await query.message.edit_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
+            return WAITING_INCOME_VALUE
+        except (ValueError, AttributeError) as e:
+            logger.error(f"Error parsing employee ID: {e}")
+            await query.message.reply_text(
+                "Error selecting employee. Please try again.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data='cancel_order_form')]])
+            )
+            return WAITING_EMPLOYEE_NAME
     
-    context.user_data['order_data']['employee_name'] = employee_name
-    
-    text = f"<b>Employee Name:</b> {employee_name}\n\n"
-    text += "Now, please enter the income value (numeric value, e.g., 1000.50):"
-    
-    keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data='cancel_order_form')]]
-    
-    await update.message.reply_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='HTML'
-    )
-    return WAITING_INCOME_VALUE
+    return WAITING_EMPLOYEE_NAME
 
 @require_auth
 async def receive_income_value(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -224,7 +307,7 @@ async def _show_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 @require_auth
 async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Save the order to database"""
+    """Save the order to database and calculate payroll if needed"""
     query = update.callback_query
     await query.answer()
     
@@ -246,12 +329,46 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         order_service = OrderService()
         order_id = order_service.create_order(order)
         
+        # Calculate and save payroll if employee has payment_method='in_percent'
+        employee_payment_method = order_data.get('employee_payment_method')
+        employee_id = order_data.get('employee_id')
+        employee_name = order_data.get('employee_name', '')
+        order_value = order_data.get('income_value', 0.0)
+        
+        payroll_message = ""
+        if employee_payment_method == 'in_percent' and employee_id:
+            payment_percent = order_data.get('employee_payment_value')
+            if payment_percent and payment_percent > 0:
+                calculated_amount = (order_value * payment_percent) / 100.0
+                
+                from database.payroll_service import PayrollService
+                from database.models import Payroll
+                
+                payroll = Payroll(
+                    employee_id=employee_id,
+                    employee_name=employee_name,
+                    order_id=order_id,
+                    order_date=order_data.get('date', ''),
+                    order_value=order_value,
+                    payment_percent=payment_percent,
+                    calculated_amount=calculated_amount
+                )
+                
+                payroll_service = PayrollService()
+                payroll_id = payroll_service.create_payroll(payroll)
+                
+                payroll_message = f"\n\n💰 <b>Payroll Calculated:</b>\n"
+                payroll_message += f"Employee: {employee_name}\n"
+                payroll_message += f"Payment: {payment_percent}% of {order_value:.2f} = {calculated_amount:.2f}"
+                logger.info(f"Payroll {payroll_id} created for employee {employee_id} from order {order_id}")
+        
         text = f"<b>✅ Order Created Successfully!</b>\n\n"
         text += f"<b>Order ID:</b> {order_id}\n"
         text += f"<b>Date:</b> {order_data.get('date')}\n"
         text += f"<b>Client:</b> {order_data.get('client_name')}\n"
-        text += f"<b>Income:</b> {order_data.get('income_value', 0):.2f}\n\n"
-        text += "The order has been saved to the database."
+        text += f"<b>Income:</b> {order_data.get('income_value', 0):.2f}\n"
+        text += payroll_message
+        text += "\n\nThe order has been saved to the database."
         
         keyboard = [
             [InlineKeyboardButton("📅 Back to Calendar", callback_data='calendar')],

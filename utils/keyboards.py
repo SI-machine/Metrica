@@ -25,8 +25,18 @@ class KeyboardTemplates:
             [InlineKeyboardButton("Calendar", callback_data='calendar')],
             [InlineKeyboardButton("Orders", callback_data='orders')],
             [InlineKeyboardButton("Employees", callback_data='employees')],
-            [InlineKeyboardButton("Tools", callback_data='tools')],
+            [InlineKeyboardButton("💰 Incomes & Expenses", callback_data='income_expense')],
             [InlineKeyboardButton("← Back", callback_data='start')]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+    
+    @staticmethod
+    def income_expense_menu() -> InlineKeyboardMarkup:
+        """Income & Expense menu keyboard"""
+        keyboard = [
+            [InlineKeyboardButton("📊 Table", callback_data='income_expense_table')],
+            [InlineKeyboardButton("📈 Analysis", callback_data='income_expense_analysis')],
+            [InlineKeyboardButton("← Back to Menu", callback_data='menu')]
         ]
         return InlineKeyboardMarkup(keyboard)
     

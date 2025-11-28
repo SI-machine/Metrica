@@ -57,8 +57,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await _handle_settings(update, context)
         elif callback_data == 'employees':
             await _handle_employees(update, context)
-        elif callback_data == 'tools':
-            await _handle_tools(update, context)
+        elif callback_data == 'income_expense':
+            await _handle_income_expense(update, context)
+        elif callback_data == 'income_expense_table' or callback_data.startswith('income_expense_table_page_'):
+            await _handle_income_expense_table(update, context)
+        elif callback_data == 'income_expense_analysis':
+            await _handle_income_expense_analysis(update, context)
         else:
             # Try to handle as calendar navigation callback
             # Calendar callbacks from telegram_bot_calendar start with 'cbcal_'
@@ -587,9 +591,138 @@ async def _handle_payroll_list(update: Update, context: ContextTypes.DEFAULT_TYP
         parse_mode='HTML'
     )
 
-@require_auth_callback  
-async def _handle_tools(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle tools callback"""
+@require_auth_callback
+async def _handle_income_expense(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle income & expense callback"""
     query = update.callback_query
-    text = "<b>Tools</b>\n\nAdditional tools coming soon!"
-    await query.message.reply_text(text, parse_mode='HTML')
+    text = "<b>💰 Incomes & Expenses</b>\n\nManage your financial transactions:"
+    await query.message.reply_text(
+        text,
+        reply_markup=KeyboardTemplates.income_expense_menu(),
+        parse_mode='HTML'
+    )
+
+@require_auth_callback
+async def _handle_income_expense_table(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle income & expense table callback with pagination"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Parse page number from callback_data
+    callback_data = query.data
+    page = 0
+    if callback_data.startswith('income_expense_table_page_'):
+        try:
+            page = int(callback_data.replace('income_expense_table_page_', ''))
+        except ValueError:
+            page = 0
+    
+    # Pagination settings
+    TRANSACTIONS_PER_PAGE = 10
+    offset = page * TRANSACTIONS_PER_PAGE
+    
+    # Get transactions from database
+    from database.income_expense_service import IncomeExpenseService
+    income_expense_service = IncomeExpenseService()
+    transactions = income_expense_service.get_all_transactions(limit=TRANSACTIONS_PER_PAGE, offset=offset)
+    total_transactions = income_expense_service.get_transactions_count()
+    total_pages = (total_transactions + TRANSACTIONS_PER_PAGE - 1) // TRANSACTIONS_PER_PAGE if total_transactions > 0 else 1
+    
+    # Build the message with monospace table
+    text = "<b>📊 Incomes & Expenses Table</b>\n\n"
+    
+    if not transactions:
+        text += "No transactions found."
+    else:
+        # Format as monospace table
+        text += "```\n"
+        text += f"{'ID':<6} {'Type':<8} {'Date':<12} {'Value':<12} {'Description':<25}\n"
+        text += "-" * 75 + "\n"
+        
+        for transaction in transactions:
+            transaction_id = str(transaction.transaction_id)
+            transaction_type = "Income" if transaction.transaction_type == 'income' else "Expense"
+            date_str = transaction.created_at[:10] if len(transaction.created_at) > 10 else transaction.created_at
+            value_str = f"{transaction.value:.2f}"
+            description = transaction.description[:23] if len(transaction.description) > 23 else transaction.description
+            if not description:
+                description = transaction.source or "N/A"
+            
+            # Add + for income, - for expense
+            value_display = f"+{value_str}" if transaction.transaction_type == 'income' else f"-{value_str}"
+            
+            text += f"{transaction_id:<6} {transaction_type:<8} {date_str:<12} {value_display:<12} {description:<25}\n"
+        
+        text += "```\n"
+        text += f"\n<b>Page {page + 1} of {total_pages}</b> | <b>Total: {total_transactions} transactions</b>"
+    
+    # Build pagination keyboard
+    keyboard = []
+    
+    # Pagination buttons
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("◀️ Previous", callback_data=f'income_expense_table_page_{page - 1}'))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("Next ▶️", callback_data=f'income_expense_table_page_{page + 1}'))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    # Back button
+    keyboard.append([InlineKeyboardButton("← Back to Incomes & Expenses", callback_data='income_expense')])
+    
+    await query.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='HTML'
+    )
+
+@require_auth_callback
+async def _handle_income_expense_analysis(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle income & expense analysis callback"""
+    query = update.callback_query
+    await query.answer()
+    
+    from database.income_expense_service import IncomeExpenseService
+    income_expense_service = IncomeExpenseService()
+    
+    total_income = income_expense_service.get_total_income()
+    total_expense = income_expense_service.get_total_expense()
+    net_profit = income_expense_service.get_net_profit()
+    
+    income_count = income_expense_service.get_transactions_count('income')
+    expense_count = income_expense_service.get_transactions_count('expense')
+    
+    text = "<b>📈 Financial Analysis</b>\n\n"
+    text += "```\n"
+    text += f"{'Metric':<25} {'Value':<15}\n"
+    text += "-" * 40 + "\n"
+    text += f"{'Total Income':<25} {total_income:>15.2f}\n"
+    text += f"{'Total Expenses':<25} {total_expense:>15.2f}\n"
+    text += f"{'Net Profit':<25} {net_profit:>15.2f}\n"
+    text += "-" * 40 + "\n"
+    text += f"{'Income Transactions':<25} {income_count:>15}\n"
+    text += f"{'Expense Transactions':<25} {expense_count:>15}\n"
+    text += "```\n"
+    
+    if total_income > 0:
+        expense_ratio = (total_expense / total_income) * 100
+        text += f"\n<b>Expense Ratio:</b> {expense_ratio:.1f}% of income"
+    
+    if net_profit > 0:
+        text += f"\n<b>Status:</b> ✅ Profitable"
+    elif net_profit < 0:
+        text += f"\n<b>Status:</b> ❌ Loss"
+    else:
+        text += f"\n<b>Status:</b> ⚖️ Break-even"
+    
+    keyboard = [
+        [InlineKeyboardButton("← Back to Incomes & Expenses", callback_data='income_expense')]
+    ]
+    
+    await query.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='HTML'
+    )

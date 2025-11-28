@@ -157,6 +157,45 @@ class Payroll:
             created_at=data.get('created_at')
         )
 
+class IncomeExpense:
+    """Income/Expense model representing financial transactions"""
+    
+    def __init__(self, transaction_id: Optional[int] = None, transaction_type: str = "income",
+                 value: float = 0.0, description: str = "", source: str = "",
+                 order_id: Optional[int] = None, created_at: Optional[str] = None):
+        self.transaction_id = transaction_id
+        self.transaction_type = transaction_type  # 'income' or 'expense'
+        self.value = value
+        self.description = description
+        self.source = source  # e.g., 'orders', 'manual', etc.
+        self.order_id = order_id  # Reference to order if from order
+        self.created_at = created_at or datetime.now().isoformat()
+    
+    def to_dict(self) -> Dict:
+        """Convert income/expense to dictionary"""
+        return {
+            'transaction_id': self.transaction_id,
+            'transaction_type': self.transaction_type,
+            'value': self.value,
+            'description': self.description,
+            'source': self.source,
+            'order_id': self.order_id,
+            'created_at': self.created_at
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'IncomeExpense':
+        """Create income/expense from dictionary"""
+        return cls(
+            transaction_id=data.get('transaction_id'),
+            transaction_type=data.get('transaction_type', 'income'),
+            value=data.get('value', 0.0),
+            description=data.get('description', ''),
+            source=data.get('source', ''),
+            order_id=data.get('order_id'),
+            created_at=data.get('created_at')
+        )
+
 def get_db_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
     """Get database connection"""
     if db_path is None:
@@ -217,6 +256,19 @@ def init_db(db_path: Optional[str] = None) -> None:
             calculated_amount REAL NOT NULL,
             created_at TEXT NOT NULL,
             FOREIGN KEY (employee_id) REFERENCES employees(employee_id),
+            FOREIGN KEY (order_id) REFERENCES orders(order_id)
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS income_expense (
+            transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            transaction_type TEXT NOT NULL CHECK(transaction_type IN ('income', 'expense')),
+            value REAL NOT NULL,
+            description TEXT,
+            source TEXT,
+            order_id INTEGER,
+            created_at TEXT NOT NULL,
             FOREIGN KEY (order_id) REFERENCES orders(order_id)
         )
     ''')

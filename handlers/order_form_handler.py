@@ -329,11 +329,27 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         order_service = OrderService()
         order_id = order_service.create_order(order)
         
+        # Automatically create income entry from order
+        order_value = order_data.get('income_value', 0.0)
+        from database.income_expense_service import IncomeExpenseService
+        from database.models import IncomeExpense
+        
+        income = IncomeExpense(
+            transaction_type='income',
+            value=order_value,
+            description=f"Order #{order_id} - {order_data.get('client_name', '')}",
+            source='orders',
+            order_id=order_id
+        )
+        
+        income_service = IncomeExpenseService()
+        income_id = income_service.create_transaction(income)
+        logger.info(f"Income {income_id} created from order {order_id}")
+        
         # Calculate and save payroll if employee has payment_method='in_percent'
         employee_payment_method = order_data.get('employee_payment_method')
         employee_id = order_data.get('employee_id')
         employee_name = order_data.get('employee_name', '')
-        order_value = order_data.get('income_value', 0.0)
         
         payroll_message = ""
         if employee_payment_method == 'in_percent' and employee_id:

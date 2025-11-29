@@ -24,8 +24,8 @@ class PayrollService:
             cursor.execute('''
                 INSERT INTO payroll 
                 (employee_id, employee_name, order_id, order_date, order_value,
-                 payment_percent, calculated_amount, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 payment_percent, calculated_amount, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 payroll.employee_id,
                 payroll.employee_name,
@@ -34,6 +34,7 @@ class PayrollService:
                 payroll.order_value,
                 payroll.payment_percent,
                 payroll.calculated_amount,
+                payroll.status,
                 payroll.created_at
             ))
             
@@ -66,6 +67,11 @@ class PayrollService:
             
             payroll_entries = []
             for row in rows:
+                # Handle status field - may not exist in old databases
+                try:
+                    status = row['status']
+                except (KeyError, IndexError):
+                    status = 'pending'
                 payroll_entries.append(Payroll(
                     payroll_id=row['payroll_id'],
                     employee_id=row['employee_id'],
@@ -75,6 +81,7 @@ class PayrollService:
                     order_value=row['order_value'],
                     payment_percent=row['payment_percent'],
                     calculated_amount=row['calculated_amount'],
+                    status=status,
                     created_at=row['created_at']
                 ))
             return payroll_entries
@@ -98,6 +105,11 @@ class PayrollService:
             
             payroll_entries = []
             for row in rows:
+                # Handle status field - may not exist in old databases
+                try:
+                    status = row['status']
+                except (KeyError, IndexError):
+                    status = 'pending'
                 payroll_entries.append(Payroll(
                     payroll_id=row['payroll_id'],
                     employee_id=row['employee_id'],
@@ -107,6 +119,7 @@ class PayrollService:
                     order_value=row['order_value'],
                     payment_percent=row['payment_percent'],
                     calculated_amount=row['calculated_amount'],
+                    status=status,
                     created_at=row['created_at']
                 ))
             return payroll_entries
@@ -170,4 +183,138 @@ class PayrollService:
             return row['total'] if row and row['total'] else 0.0
         finally:
             conn.close()
+    
+    def get_payroll_by_id(self, payroll_id: int) -> Optional[Payroll]:
+        """Get payroll by ID"""
+        conn = get_db_connection(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('SELECT * FROM payroll WHERE payroll_id = ?', (payroll_id,))
+            row = cursor.fetchone()
+            
+            if row:
+                # Handle status field - may not exist in old databases
+                try:
+                    status = row['status']
+                except (KeyError, IndexError):
+                    status = 'pending'
+                return Payroll(
+                    payroll_id=row['payroll_id'],
+                    employee_id=row['employee_id'],
+                    employee_name=row['employee_name'],
+                    order_id=row['order_id'],
+                    order_date=row['order_date'],
+                    order_value=row['order_value'],
+                    payment_percent=row['payment_percent'],
+                    calculated_amount=row['calculated_amount'],
+                    status=status,
+                    created_at=row['created_at']
+                )
+            return None
+        finally:
+            conn.close()
+    
+    def update_payroll_status(self, payroll_id: int, status: str) -> bool:
+        """Update payroll status"""
+        conn = get_db_connection(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+                UPDATE payroll 
+                SET status = ?
+                WHERE payroll_id = ?
+            ''', (status, payroll_id))
+            
+            conn.commit()
+            success = cursor.rowcount > 0
+            if success:
+                logger.info(f"Updated payroll {payroll_id} status to {status}")
+            return success
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Error updating payroll status: {e}")
+            raise
+        finally:
+            conn.close()
+    
+    def get_payrolls_by_status(self, status: str, limit: Optional[int] = None, 
+                              offset: Optional[int] = None) -> List[Payroll]:
+        """Get all payroll entries with a specific status"""
+        conn = get_db_connection(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            query = 'SELECT * FROM payroll WHERE status = ? ORDER BY created_at DESC'
+            if limit is not None:
+                query += f' LIMIT {limit}'
+                if offset is not None:
+                    query += f' OFFSET {offset}'
+            
+            cursor.execute(query, (status,))
+            rows = cursor.fetchall()
+            
+            payroll_entries = []
+            for row in rows:
+                # Handle status field - may not exist in old databases
+                try:
+                    status = row['status']
+                except (KeyError, IndexError):
+                    status = 'pending'
+                payroll_entries.append(Payroll(
+                    payroll_id=row['payroll_id'],
+                    employee_id=row['employee_id'],
+                    employee_name=row['employee_name'],
+                    order_id=row['order_id'],
+                    order_date=row['order_date'],
+                    order_value=row['order_value'],
+                    payment_percent=row['payment_percent'],
+                    calculated_amount=row['calculated_amount'],
+                    status=status,
+                    created_at=row['created_at']
+                ))
+            return payroll_entries
+        finally:
+            conn.close()
+    
+    def mark_payroll_as_paid(self, payroll_id: int) -> bool:
+        """Mark payroll as paid and create expense entry"""
+        from .income_expense_service import IncomeExpenseService
+        from .models import IncomeExpense
+        
+        # Get the payroll first
+        payroll = self.get_payroll_by_id(payroll_id)
+        if not payroll:
+            logger.error(f"Payroll {payroll_id} not found")
+            return False
+        
+        if payroll.status == 'paid':
+            logger.warning(f"Payroll {payroll_id} is already marked as paid")
+            return False
+        
+        # Update status to paid
+        success = self.update_payroll_status(payroll_id, 'paid')
+        if not success:
+            return False
+        
+        # Create expense entry
+        try:
+            expense = IncomeExpense(
+                transaction_type='expense',
+                value=payroll.calculated_amount,
+                description=f"Payroll payment for {payroll.employee_name} - Order #{payroll.order_id}",
+                source='payroll',
+                order_id=payroll.order_id
+            )
+            
+            expense_service = IncomeExpenseService(self.db_path)
+            expense_id = expense_service.create_transaction(expense)
+            logger.info(f"Expense {expense_id} created for payroll {payroll_id} payment of {payroll.calculated_amount}")
+            return True
+        except Exception as e:
+            logger.error(f"Error creating expense for payroll {payroll_id}: {e}")
+            # Rollback the status change
+            self.update_payroll_status(payroll_id, 'pending')
+            return False
 

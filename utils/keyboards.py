@@ -22,9 +22,9 @@ class KeyboardTemplates:
     def submenu() -> InlineKeyboardMarkup:
         """Submenu keyboard"""
         keyboard = [
-            [InlineKeyboardButton("Calendar", callback_data='calendar')],
-            [InlineKeyboardButton("Orders", callback_data='orders')],
-            [InlineKeyboardButton("Employees", callback_data='employees')],
+            [InlineKeyboardButton("📅 Calendar", callback_data='calendar')],
+            [InlineKeyboardButton("📦 Orders", callback_data='orders')],
+            [InlineKeyboardButton("👥 Employees", callback_data='employees')],
             [InlineKeyboardButton("💰 Incomes & Expenses", callback_data='income_expense')],
             [InlineKeyboardButton("← Back", callback_data='start')]
         ]

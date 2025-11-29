@@ -53,6 +53,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await _handle_employee_list(update, context)
         elif callback_data == 'payroll_list' or callback_data.startswith('payroll_list_page_'):
             await _handle_payroll_list(update, context)
+        elif callback_data.startswith('payroll_detail_') or callback_data.startswith('payroll_mark_paid_'):
+            await _handle_payroll_detail(update, context)
         elif callback_data == 'settings':
             await _handle_settings(update, context)
         elif callback_data == 'employees':
@@ -517,7 +519,7 @@ async def _handle_employee_list(update: Update, context: ContextTypes.DEFAULT_TY
 
 @require_auth_callback
 async def _handle_payroll_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle payroll list callback with pagination"""
+    """Handle payroll list callback with pagination - shows pending payrolls"""
     query = update.callback_query
     await query.answer()
     
@@ -534,43 +536,62 @@ async def _handle_payroll_list(update: Update, context: ContextTypes.DEFAULT_TYP
     PAYROLL_PER_PAGE = 5
     offset = page * PAYROLL_PER_PAGE
     
-    # Get payroll summary from database
+    # Get pending payrolls from database
     from database.payroll_service import PayrollService
     payroll_service = PayrollService()
-    payroll_summary = payroll_service.get_payroll_summary_by_employee()
+    all_payrolls = payroll_service.get_payrolls_by_status('pending')
     
     # Calculate pagination
-    total_entries = len(payroll_summary)
+    total_entries = len(all_payrolls)
     total_pages = (total_entries + PAYROLL_PER_PAGE - 1) // PAYROLL_PER_PAGE if total_entries > 0 else 1
     
     # Get paginated results
     start_idx = offset
     end_idx = min(offset + PAYROLL_PER_PAGE, total_entries)
-    paginated_summary = payroll_summary[start_idx:end_idx]
+    paginated_payrolls = all_payrolls[start_idx:end_idx]
     
     # Build the message
-    text = "<b>💰 Payroll Calculations</b>\n\n"
+    text = "<b>💰 Pending Payroll Payments</b>\n\n"
     
-    if not paginated_summary:
-        text += "No payroll calculations found."
+    if not paginated_payrolls:
+        text += "No pending payroll payments found."
     else:
         # Format as monospace table
         text += "```\n"
-        text += f"{'Employee':<20} {'Orders':<8} {'Total Amount':<15}\n"
-        text += "-" * 45 + "\n"
+        text += f"{'ID':<6} {'Employee':<18} {'Order':<8} {'Amount':<12} {'Date':<12}\n"
+        text += "-" * 60 + "\n"
         
-        for summary in paginated_summary:
-            employee_name = summary['employee_name'][:18] if len(summary['employee_name']) > 18 else summary['employee_name']
-            order_count = str(summary['order_count'])
-            total_amount = f"{summary['total_amount']:.2f}"
+        for payroll in paginated_payrolls:
+            employee_name = payroll.employee_name[:16] if len(payroll.employee_name) > 16 else payroll.employee_name
+            order_id = str(payroll.order_id)
+            amount = f"{payroll.calculated_amount:.2f}"
+            date_str = payroll.order_date[:10] if len(payroll.order_date) > 10 else payroll.order_date
             
-            text += f"{employee_name:<20} {order_count:<8} {total_amount:<15}\n"
+            text += f"{payroll.payroll_id:<6} {employee_name:<18} {order_id:<8} {amount:<12} {date_str:<12}\n"
         
         text += "```\n"
-        text += f"\n<b>Page {page + 1} of {total_pages}</b> | <b>Total: {total_entries} employees</b>"
+        text += f"\n<b>Page {page + 1} of {total_pages}</b> | <b>Total: {total_entries} pending payments</b>"
+        text += "\n\nClick on a payroll ID to mark it as paid."
     
-    # Build pagination keyboard
+    # Build keyboard with payroll buttons
     keyboard = []
+    
+    # Add buttons for each payroll entry (2 per row)
+    row = []
+    for payroll in paginated_payrolls:
+        button_text = f"#{payroll.payroll_id} - {payroll.employee_name[:15]}"
+        if len(button_text) > 30:
+            button_text = button_text[:27] + "..."
+        row.append(InlineKeyboardButton(
+            button_text,
+            callback_data=f'payroll_detail_{payroll.payroll_id}'
+        ))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    
+    if row:  # Add remaining buttons
+        keyboard.append(row)
     
     # Pagination buttons
     nav_buttons = []
@@ -590,6 +611,117 @@ async def _handle_payroll_list(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='HTML'
     )
+
+@require_auth_callback
+async def _handle_payroll_detail(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle payroll detail view and mark as paid"""
+    query = update.callback_query
+    await query.answer()
+    
+    callback_data = query.data
+    
+    # Check if marking as paid
+    if callback_data.startswith('payroll_mark_paid_'):
+        try:
+            payroll_id = int(callback_data.replace('payroll_mark_paid_', ''))
+            
+            from database.payroll_service import PayrollService
+            payroll_service = PayrollService()
+            
+            # Mark as paid and create expense
+            success = payroll_service.mark_payroll_as_paid(payroll_id)
+            
+            if success:
+                payroll = payroll_service.get_payroll_by_id(payroll_id)
+                text = f"<b>✅ Payroll Marked as Paid</b>\n\n"
+                text += f"<b>Payroll ID:</b> {payroll.payroll_id}\n"
+                text += f"<b>Employee:</b> {payroll.employee_name}\n"
+                text += f"<b>Order ID:</b> {payroll.order_id}\n"
+                text += f"<b>Amount:</b> {payroll.calculated_amount:.2f}\n"
+                text += f"<b>Status:</b> ✅ Paid\n\n"
+                text += f"An expense entry has been created for this payment."
+                
+                keyboard = [
+                    [InlineKeyboardButton("← Back to Payroll List", callback_data='payroll_list')],
+                    [InlineKeyboardButton("← Back to Employees", callback_data='employees')]
+                ]
+                
+                await query.message.edit_text(
+                    text,
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode='HTML'
+                )
+            else:
+                await query.message.reply_text(
+                    "❌ Error marking payroll as paid. Please try again.",
+                    parse_mode='HTML'
+                )
+        except (ValueError, Exception) as e:
+            logger.error(f"Error marking payroll as paid: {e}")
+            await query.message.reply_text(
+                "❌ Error processing request. Please try again.",
+                parse_mode='HTML'
+            )
+        return
+    
+    # Show payroll detail
+    if callback_data.startswith('payroll_detail_'):
+        try:
+            payroll_id = int(callback_data.replace('payroll_detail_', ''))
+            
+            from database.payroll_service import PayrollService
+            payroll_service = PayrollService()
+            payroll = payroll_service.get_payroll_by_id(payroll_id)
+            
+            if not payroll:
+                await query.message.reply_text(
+                    "❌ Payroll not found.",
+                    parse_mode='HTML'
+                )
+                return
+            
+            # Build detail message
+            text = f"<b>💰 Payroll Details</b>\n\n"
+            text += f"<b>Payroll ID:</b> {payroll.payroll_id}\n"
+            text += f"<b>Employee:</b> {payroll.employee_name}\n"
+            text += f"<b>Order ID:</b> {payroll.order_id}\n"
+            text += f"<b>Order Date:</b> {payroll.order_date}\n"
+            text += f"<b>Order Value:</b> {payroll.order_value:.2f}\n"
+            if payroll.payment_percent:
+                text += f"<b>Payment Percent:</b> {payroll.payment_percent}%\n"
+            text += f"<b>Calculated Amount:</b> {payroll.calculated_amount:.2f}\n"
+            text += f"<b>Status:</b> "
+            
+            if payroll.status == 'pending':
+                text += "⏳ Pending"
+            elif payroll.status == 'paid':
+                text += "✅ Paid"
+            else:
+                text += payroll.status
+            
+            # Build keyboard
+            keyboard = []
+            
+            # Add mark as paid button if status is pending
+            if payroll.status == 'pending':
+                keyboard.append([
+                    InlineKeyboardButton("✅ Mark as Paid", callback_data=f'payroll_mark_paid_{payroll_id}')
+                ])
+            
+            keyboard.append([InlineKeyboardButton("← Back to Payroll List", callback_data='payroll_list')])
+            keyboard.append([InlineKeyboardButton("← Back to Employees", callback_data='employees')])
+            
+            await query.message.edit_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='HTML'
+            )
+        except (ValueError, Exception) as e:
+            logger.error(f"Error showing payroll detail: {e}")
+            await query.message.reply_text(
+                "❌ Error loading payroll details. Please try again.",
+                parse_mode='HTML'
+            )
 
 @require_auth_callback
 async def _handle_income_expense(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

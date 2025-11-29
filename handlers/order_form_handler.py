@@ -329,30 +329,47 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         order_service = OrderService()
         order_id = order_service.create_order(order)
         
-        # Automatically create income entry from order
-        order_value = order_data.get('income_value', 0.0)
-        from database.income_expense_service import IncomeExpenseService
-        from database.models import IncomeExpense
-        
-        income = IncomeExpense(
-            transaction_type='income',
-            value=order_value,
-            description=f"Order #{order_id} - {order_data.get('client_name', '')}",
-            source='orders',
-            order_id=order_id
-        )
-        
-        income_service = IncomeExpenseService()
-        income_id = income_service.create_transaction(income)
-        logger.info(f"Income {income_id} created from order {order_id}")
-        
-        # Calculate and save payroll if employee has payment_method='in_percent'
+        # Get employee info
         employee_payment_method = order_data.get('employee_payment_method')
         employee_id = order_data.get('employee_id')
         employee_name = order_data.get('employee_name', '')
+        order_value = order_data.get('income_value', 0.0)
         
-        payroll_message = ""
-        if employee_payment_method == 'in_percent' and employee_id:
+        from database.income_expense_service import IncomeExpenseService
+        from database.models import IncomeExpense
+        
+        # Handle owner employees: add full amount to income, no payroll
+        if employee_payment_method == 'owner':
+            # Add the whole amount to income
+            income = IncomeExpense(
+                transaction_type='income',
+                value=order_value,
+                description=f"Order #{order_id} - {order_data.get('client_name', '')} (Owner: {employee_name})",
+                source='orders',
+                order_id=order_id
+            )
+            
+            income_service = IncomeExpenseService()
+            income_id = income_service.create_transaction(income)
+            logger.info(f"Income {income_id} created from order {order_id} for owner employee {employee_name}")
+            payroll_message = ""
+        
+        # Handle in_percent employees: create payroll with pending status
+        elif employee_payment_method == 'in_percent' and employee_id:
+            # Add the whole amount to income first
+            income = IncomeExpense(
+                transaction_type='income',
+                value=order_value,
+                description=f"Order #{order_id} - {order_data.get('client_name', '')}",
+                source='orders',
+                order_id=order_id
+            )
+            
+            income_service = IncomeExpenseService()
+            income_id = income_service.create_transaction(income)
+            logger.info(f"Income {income_id} created from order {order_id}")
+            
+            # Calculate and save payroll with pending status
             payment_percent = order_data.get('employee_payment_value')
             if payment_percent and payment_percent > 0:
                 calculated_amount = (order_value * payment_percent) / 100.0
@@ -367,16 +384,36 @@ async def confirm_order(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                     order_date=order_data.get('date', ''),
                     order_value=order_value,
                     payment_percent=payment_percent,
-                    calculated_amount=calculated_amount
+                    calculated_amount=calculated_amount,
+                    status='pending'  # Set status to pending
                 )
                 
                 payroll_service = PayrollService()
                 payroll_id = payroll_service.create_payroll(payroll)
                 
-                payroll_message = f"\n\n💰 <b>Payroll Calculated:</b>\n"
+                payroll_message = f"\n\n💰 <b>Payroll Calculated (Pending):</b>\n"
                 payroll_message += f"Employee: {employee_name}\n"
-                payroll_message += f"Payment: {payment_percent}% of {order_value:.2f} = {calculated_amount:.2f}"
-                logger.info(f"Payroll {payroll_id} created for employee {employee_id} from order {order_id}")
+                payroll_message += f"Payment: {payment_percent}% of {order_value:.2f} = {calculated_amount:.2f}\n"
+                payroll_message += f"Status: ⏳ Pending"
+                logger.info(f"Payroll {payroll_id} created with pending status for employee {employee_id} from order {order_id}")
+            else:
+                payroll_message = ""
+        
+        # Handle fixed payment employees or other cases
+        else:
+            # Add the whole amount to income
+            income = IncomeExpense(
+                transaction_type='income',
+                value=order_value,
+                description=f"Order #{order_id} - {order_data.get('client_name', '')}",
+                source='orders',
+                order_id=order_id
+            )
+            
+            income_service = IncomeExpenseService()
+            income_id = income_service.create_transaction(income)
+            logger.info(f"Income {income_id} created from order {order_id}")
+            payroll_message = ""
         
         text = f"<b>✅ Order Created Successfully!</b>\n\n"
         text += f"<b>Order ID:</b> {order_id}\n"

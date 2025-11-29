@@ -117,7 +117,8 @@ class Payroll:
     def __init__(self, payroll_id: Optional[int] = None, employee_id: int = 0,
                  employee_name: str = "", order_id: int = 0, order_date: str = "",
                  order_value: float = 0.0, payment_percent: Optional[float] = None,
-                 calculated_amount: float = 0.0, created_at: Optional[str] = None):
+                 calculated_amount: float = 0.0, status: str = "pending", 
+                 created_at: Optional[str] = None):
         self.payroll_id = payroll_id
         self.employee_id = employee_id
         self.employee_name = employee_name
@@ -126,6 +127,7 @@ class Payroll:
         self.order_value = order_value
         self.payment_percent = payment_percent
         self.calculated_amount = calculated_amount
+        self.status = status  # 'pending' or 'paid'
         self.created_at = created_at or datetime.now().isoformat()
     
     def to_dict(self) -> Dict:
@@ -139,6 +141,7 @@ class Payroll:
             'order_value': self.order_value,
             'payment_percent': self.payment_percent,
             'calculated_amount': self.calculated_amount,
+            'status': self.status,
             'created_at': self.created_at
         }
     
@@ -154,6 +157,7 @@ class Payroll:
             order_value=data.get('order_value', 0.0),
             payment_percent=data.get('payment_percent'),
             calculated_amount=data.get('calculated_amount', 0.0),
+            status=data.get('status', 'pending'),
             created_at=data.get('created_at')
         )
 
@@ -254,11 +258,19 @@ def init_db(db_path: Optional[str] = None) -> None:
             order_value REAL NOT NULL,
             payment_percent REAL,
             calculated_amount REAL NOT NULL,
+            status TEXT DEFAULT 'pending',
             created_at TEXT NOT NULL,
             FOREIGN KEY (employee_id) REFERENCES employees(employee_id),
             FOREIGN KEY (order_id) REFERENCES orders(order_id)
         )
     ''')
+    
+    # Add status column to existing payroll table if it doesn't exist
+    try:
+        cursor.execute('ALTER TABLE payroll ADD COLUMN status TEXT DEFAULT "pending"')
+    except sqlite3.OperationalError:
+        # Column already exists, ignore
+        pass
     
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS income_expense (

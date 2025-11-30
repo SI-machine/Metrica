@@ -239,7 +239,49 @@ The code follows Python PEP 8 guidelines and includes:
 
 ## Production Deployment
 
-For production deployment:
+### Railway Deployment (Recommended)
+
+Railway is a great free option for hosting Python Telegram bots. It supports automatic deployments from both GitHub and **GitLab**.
+
+#### Quick Setup:
+
+1. **Create a Railway Account**
+   - Go to [railway.app](https://railway.app)
+   - Sign up with your GitLab account
+
+2. **Connect Your GitLab Repository**
+   - Click "New Project" → "Deploy from Git repo"
+   - Select GitLab and authorize Railway
+   - Choose your Metrica bot repository
+
+3. **Configure Environment Variables**
+   In Railway dashboard, go to your service → Variables tab and add:
+   ```
+   BOT_TOKEN=your_bot_token_here
+   ALLOWED_USERS=123456789,987654321
+   DEBUG=false
+   LOG_LEVEL=INFO
+   ```
+
+4. **Deploy**
+   - Railway will automatically detect Python and install dependencies
+   - The `Procfile` tells Railway to run `python bot.py` as a worker
+   - Your bot will be live once deployment completes!
+
+#### Railway Features:
+- ✅ Automatic deployments from GitLab on every push
+- ✅ Free tier: $5/month credit (usually enough for small bots)
+- ✅ Environment variable management
+- ✅ Built-in logs and monitoring
+- ✅ Easy rollback if needed
+
+#### Files Created for Railway:
+- `Procfile` - Tells Railway how to run your bot
+- `railway.json` - Railway-specific configuration
+
+### Other Deployment Options
+
+For other platforms:
 
 1. Use environment variables instead of `.env` file
 2. Set up proper logging rotation

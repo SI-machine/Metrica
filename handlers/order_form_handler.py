@@ -30,10 +30,18 @@ async def start_order_form(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     if query:
         await query.answer()
-        # Extract date from callback_data (format: add_order_YYYY-MM-DD)
+        # Extract date from callback_data (format: add_order_YYYY-MM-DD or order_add_today)
         callback_data = query.data
-        if callback_data.startswith('add_order_'):
+        date_str = None
+        
+        if callback_data == 'order_add_today':
+            # Use today's date
+            date_str = datetime.now().strftime("%Y-%m-%d")
+        elif callback_data.startswith('add_order_'):
+            # Extract date from callback_data
             date_str = callback_data.replace('add_order_', '')
+        
+        if date_str:
             context.user_data['order_date'] = date_str
             context.user_data['order_data'] = {'date': date_str}
             

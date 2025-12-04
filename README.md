@@ -241,20 +241,39 @@ The code follows Python PEP 8 guidelines and includes:
 
 ### Railway Deployment (Recommended)
 
-Railway is a great free option for hosting Python Telegram bots. It supports automatic deployments from both GitHub and **GitLab**.
+Railway is a great free option for hosting Python Telegram bots. Railway's UI supports GitHub natively, so you can either:
+- **Option A**: Mirror your GitLab repo to GitHub (easiest for Railway)
+- **Option B**: Use Railway CLI with GitLab (see below)
 
-#### Quick Setup:
+#### Option A: Mirror GitLab → GitHub (Recommended for Railway)
 
-1. **Create a Railway Account**
+This keeps GitLab as your primary repo and automatically syncs to GitHub for Railway deployments.
+
+1. **Create GitHub Repository**
+   - Go to [github.com](https://github.com) and create a new empty repository
+   - Don't initialize with README, .gitignore, or license (keep it empty)
+
+2. **Set Up GitLab Mirroring**
+   - In your GitLab project, go to **Settings** → **Repository** → **Mirroring repositories**
+   - Under "Push to a remote repository", enter:
+     - **Git repository URL**: `https://github.com/yourusername/your-repo-name.git`
+     - **Mirror direction**: Push
+     - **Authentication method**: Password
+     - **Password**: Your GitHub Personal Access Token (see below)
+   - Click "Mirror repository"
+
+3. **Create GitHub Personal Access Token**
+   - GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)
+   - Generate new token with `repo` scope
+   - Copy the token and use it as the password in step 2
+
+4. **Deploy on Railway**
    - Go to [railway.app](https://railway.app)
-   - Sign up with your GitLab account
+   - Click "New Project" → **"Deploy from GitHub repo"**
+   - Select your GitHub repository (the mirrored one)
+   - Railway will automatically detect Python and deploy!
 
-2. **Connect Your GitLab Repository**
-   - Click "New Project" → "Deploy from Git repo"
-   - Select GitLab and authorize Railway
-   - Choose your Metrica bot repository
-
-3. **Configure Environment Variables**
+5. **Configure Environment Variables**
    In Railway dashboard, go to your service → Variables tab and add:
    ```
    BOT_TOKEN=your_bot_token_here
@@ -263,17 +282,106 @@ Railway is a great free option for hosting Python Telegram bots. It supports aut
    LOG_LEVEL=INFO
    ```
 
-4. **Deploy**
-   - Railway will automatically detect Python and install dependencies
-   - The `Procfile` tells Railway to run `python bot.py` as a worker
-   - Your bot will be live once deployment completes!
+**Benefits:**
+- ✅ Automatic deployments on every GitLab push (via GitHub mirror)
+- ✅ Keep using GitLab as your primary repo
+- ✅ No CLI needed - fully automatic
+- ✅ Railway's native GitHub integration
+
+**Alternative: Manual Push to GitHub (One-time)**
+If you prefer not to set up mirroring, you can manually push your code to GitHub:
+```bash
+# Add GitHub as a remote
+git remote add github https://github.com/yourusername/your-repo-name.git
+
+# Push to GitHub
+git push github main  # or your branch name
+
+# For future updates, push to both:
+git push origin main      # GitLab
+git push github main      # GitHub
+```
+
+#### Option B: Railway CLI with GitLab (Alternative):
+
+1. **Create an Empty Railway Project**
+   - Go to [railway.app](https://railway.app) and sign up/login
+   - Click "New Project" → **"Empty Project"**
+   - This creates a blank project where you can deploy your code
+
+2. **Install Railway CLI**
+   ```bash
+   # Windows (PowerShell)
+   iwr https://railway.app/install.ps1 | iex
+   
+   # Or using npm (if you have Node.js)
+   npm i -g @railway/cli
+   ```
+
+3. **Login to Railway**
+   ```bash
+   railway login
+   ```
+   This will open your browser to authenticate.
+
+4. **Link Your Project**
+   ```bash
+   # Navigate to your bot directory
+   cd Metrica
+   
+   # Link to your Railway project
+   railway link
+   ```
+   Select the empty project you created in step 1.
+
+5. **Deploy Your Bot**
+   ```bash
+   railway up
+   ```
+   This will deploy your code from the current directory to Railway.
+
+6. **Configure Environment Variables**
+   In Railway dashboard, go to your project → Variables tab and add:
+   ```
+   BOT_TOKEN=your_bot_token_here
+   ALLOWED_USERS=123456789,987654321
+   DEBUG=false
+   LOG_LEVEL=INFO
+   ```
+
+7. **Future Deployments**
+   After the initial setup, you can deploy updates by simply running:
+   ```bash
+   railway up
+   ```
+   Or set up GitLab CI/CD for automatic deployments (see below).
+
+#### Automatic Deployments with GitLab CI/CD (Optional):
+
+Create a `.gitlab-ci.yml` file in your repository root:
+
+```yaml
+deploy:
+  image: ghcr.io/railwayapp/cli:latest
+  only:
+    - main  # or your main branch name
+  script:
+    - railway up --service $RAILWAY_SERVICE_ID
+  variables:
+    RAILWAY_TOKEN: $RAILWAY_TOKEN
+```
+
+Then in GitLab:
+- Go to Settings → CI/CD → Variables
+- Add `RAILWAY_TOKEN` (get it from Railway dashboard → Project Settings → Tokens)
+- Add `RAILWAY_SERVICE_ID` (found in Railway dashboard → your service → Settings)
 
 #### Railway Features:
-- ✅ Automatic deployments from GitLab on every push
 - ✅ Free tier: $5/month credit (usually enough for small bots)
 - ✅ Environment variable management
 - ✅ Built-in logs and monitoring
 - ✅ Easy rollback if needed
+- ✅ Can deploy from GitLab using CLI or CI/CD
 
 #### Files Created for Railway:
 - `Procfile` - Tells Railway how to run your bot

@@ -95,7 +95,8 @@ def main():
     # Register order form ConversationHandler (must be before CallbackQueryHandler)
     order_form_handler = ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(start_order_form, pattern='^add_order_')
+            CallbackQueryHandler(start_order_form, pattern='^add_order_'),
+            CallbackQueryHandler(start_order_form, pattern='^order_add_today$')
         ],
         states={
             WAITING_CLIENT_NAME: [

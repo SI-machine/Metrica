@@ -44,6 +44,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         elif callback_data == 'order_add':
             # Show calendar to select date for new order
             await _handle_calendar(update, context)
+        elif callback_data == 'order_add_today':
+            # This will be handled by ConversationHandler - don't process here
+            pass
         elif callback_data == 'order_list' or callback_data.startswith('order_list_page_'):
             await _handle_order_list(update, context)
         elif callback_data == 'add_employee':
@@ -343,6 +346,7 @@ async def _handle_orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         reply_markup=KeyboardTemplates.orders_menu(),
         parse_mode='HTML'
     )
+
 
 @require_auth_callback
 async def _handle_order_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

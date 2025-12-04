@@ -45,6 +45,7 @@ class KeyboardTemplates:
         """Orders menu keyboard"""
         keyboard = [
             [InlineKeyboardButton("➕ Add Order", callback_data='order_add')],
+            [InlineKeyboardButton("➕ Add for Today", callback_data='order_add_today')],
             [InlineKeyboardButton("📋 Show Orders List", callback_data='order_list')],
             [InlineKeyboardButton("← Back to Menu", callback_data='menu')]
         ]
